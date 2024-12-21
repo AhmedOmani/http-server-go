@@ -9,6 +9,10 @@ import (
 var _ = net.Listen
 var _ = os.Exit
 
+func HttpResponse(connect net.Conn) {
+	fmt.FPrintf(connect , "HTTP/1.1 200 OK\r\n\r\n")
+}
+
 func main() {
 	
 	fmt.Println("Logs from your program will appear here!")
@@ -23,5 +27,5 @@ func main() {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
 	}
-	connection.Write([]byte("HTTP/1,1 200 OK\r\n\r\n"))
+	HttpResponse(connection) 
 }
