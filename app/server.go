@@ -10,7 +10,7 @@ var _ = net.Listen
 var _ = os.Exit
 
 func HttpResponse(connect net.Conn) {
-	fmt.FPrintf(connect , "HTTP/1.1 200 OK\r\n\r\n")
+	fmt.Fprintf(connect , "HTTP/1.1 200 OK\r\n\r\n")
 }
 
 func main() {
