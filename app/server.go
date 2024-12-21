@@ -4,80 +4,80 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"bufio"
 	"strings"
 )
 
 var _ = net.Listen
 var _ = os.Exit
 
-func handleRequest(connection net.Conn){
-	
+func handleRequest(connection net.Conn) {
+
 	defer connection.Close()
 
-	reader := bufio.NewReader(connection)
-	requestLine , err := reader.ReadString('\n')
+	buffer := make([]byte, 4096)
+	n, err := connection.Read(buffer)
+
 	if err != nil {
-		fmt.Println("Error reading request: " , err) 
-		return 
+		fmt.Println("Error reading request:", err)
+		return
 	}
 
-	requestLine = strings.TrimSpace(requestLine)
+	httpRequest := string(buffer[:n])
 
-	parts := strings.Split(requestLine , " ") 
-	if len(parts) < 3 {
-		fmt.Println("Invalid request line:" , requestLine)
-		return 
+	lines := strings.Split(httpRequest, "\r\n")
+
+	if len(lines) < 1 {
+		fmt.Println("Invlid request structure", err)
+		return
 	}
 
-	
+	requestLine := lines[0]
+	requestParts := strings.Split(requestLine, " ")
 
-	method := parts[0]
-	url := parts[1]
-	httpVersion := parts[2]
+	if len(requestParts) < 3 {
+		fmt.Println("Invalid request format", err)
+		return
+	}
 
-	if method == "GET" && url == "/"  {
-		
-		handleGET(connection , httpVersion)
+	method, url, httpVersion := requestParts[0], requestParts[1], requestParts[2]
+
+	if method == "GET" && url == "/" {
+		handleGET(connection, httpVersion)
 	} else {
-		handleNotFound(connection , httpVersion)
+		handleNotFound(connection, httpVersion)
 	}
 
 }
 
-func handleGET(connection net.Conn , httpVersion string) {
-	response := fmt.Sprintf("%s 200 OK\r\n\r\n" , httpVersion) 
+func handleGET(connection net.Conn, httpVersion string) {
+	response := fmt.Sprintf("%s 200 OK\r\n\r\n", httpVersion)
 	connection.Write([]byte(response))
-	defer connection.Close()
 }
 
-func handleNotFound(connection net.Conn , httpVersion string) {
-	response := fmt.Sprintf("%s 404 Not Found\r\n\r\n" , httpVersion)
+func handleNotFound(connection net.Conn, httpVersion string) {
+	response := fmt.Sprintf("%s 404 Not Found\r\n\r\n", httpVersion)
 	connection.Write([]byte(response))
-	defer connection.Close()
-} 
+}
 
 func main() {
-	
+
 	fmt.Println("Logs from your program will appear here!")
-	
+
 	//create an tcp server !
-	listener , err := net.Listen("tcp" , "0.0.0.0:4221")
+	listener, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
-		fmt.Println("A7a mfesh connection: " , err) 
-		return 
+		fmt.Println("A7a mfesh connection: ", err)
+		return
 	}
 
-	//wait for a client connection 
+	//wait for a client connection
 	for {
-		connection , err := listener.Accept()
+		connection, err := listener.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection: " , err.Error())
+			fmt.Println("Error accepting connection: ", err.Error())
 			continue
 		}
 		go handleRequest(connection)
 	}
-
-
 
 }
