@@ -116,7 +116,6 @@ func main() {
 		return
 	}
 
-	defer listener.Close()
 
 	for {
 		connection, err := listener.Accept()
