@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+type Request struct {
+	Method string 
+	URL string
+	HTTPVersion string
+	UserAGent string  
+}
+
 func getUserAgent(lines []string) string {
 	var userAgent string 
 	for _ , line := range lines {
@@ -20,67 +27,67 @@ func getUserAgent(lines []string) string {
 	return userAgent 
 }
 
+func parseRequest(rawRequest string) (*Request , error) {
+	lines := strings.Split(rawRequest , "\r\n")
+	if len(lines) < 1 {
+		return nil , fmt.Errorf("bad request format")
+	}
+
+	requestLine := strings.Split(lines[0] , " ")
+	if len(requestLine) < 3 {
+		return nil , fmt.Errorf("invalid request line")
+	}
+
+	method , url , httpVersion := requestLine[0] , requestLine[1] , requestLine[2] 
+	userAgent := getUserAgent(lines)
+
+	return &Request{Method: method , 
+					URL: url , 
+					HTTPVersion: httpVersion , 
+					UserAGent: userAgent} , nil 
+}
+
+func routeRequest(request *Request , connection net.Conn) {
+	switch {
+	case request.Method != "GET":
+		handleNotFound(connection , request.HTTPVersion)
+
+	case strings.HasPrefix(request.URL , "/echo/") :
+		body := strings.TrimPrefix(request.URL , "/echo/")
+		handleGET(connection , request.HTTPVersion , body)
+
+	case request.URL == "/user-agent" :
+		handleGET(connection , request.HTTPVersion , request.UserAGent)
+
+	case request.URL == "/":
+		handleGETRoot(connection , request.HTTPVersion)
+		
+	default:
+		handleNotFound(connection , request.HTTPVersion)
+	}
+}
+
 func handleRequest(connection net.Conn) {
 
 	defer connection.Close()
 
-	buffer := make([]byte, 4096)
-	//take the request as stream of bytes
+	buffer := make([]byte, 10240)
 	n, err := connection.Read(buffer)
-
 	if err != nil {
 		fmt.Println("error during read the http request!")
 		return
 	}
 
-	//convert the stream of bytes to string
-	httpRequest := string(buffer[:n])
+	rawRequest := string(buffer[:n])
+	request , err := parseRequest(rawRequest)
 
-	lines := strings.Split(httpRequest, "\r\n")
-
-	if len(lines) < 1 {
-		fmt.Println("so bad format of request")
-		return
-	}
-	
-	//Get userAgent
-	userAgent := getUserAgent(lines)
-
-	requestLine := lines[0]
-	requestParts := strings.Split(requestLine, " ")
-
-	if len(requestParts) < 3 {
-		fmt.Println("Invalid request structure", err)
+	if err != nil {
+		fmt.Println("Failed to parse request:", err)
+		handleNotFound(connection, "HTTP/1.1")
 		return
 	}
 
-	method, url, httpVersion := requestParts[0], requestParts[1], requestParts[2]
-	
-	if method != "GET" {
-		handleNotFound(connection , httpVersion)
-		return 
-	}
-
-	if strings.HasPrefix(url , "/echo/") {
-		body := strings.TrimPrefix(url , "/echo/")
-		handleGETEcho(connection , httpVersion , body)
-		return 
-	}
-
-	if strings.HasPrefix(url , "/user-agent") {
-		handleGETUserAgent(connection , httpVersion , userAgent)
-		return
-	}
-
-	if strings.HasPrefix(url , "/") {
-		body := strings.TrimPrefix(url , "/")
-		if body != "" {
-			handleNotFound(connection , httpVersion)
-		}
-		handleGETRoot(connection , httpVersion)
-	}
-
-	handleNotFound(connection , httpVersion)
+	routeRequest(request , connection)
 	
 }
 
@@ -89,7 +96,7 @@ func handleGETRoot(connection net.Conn , httpVersion string) {
 	connection.Write([]byte(response))
 }
 
-func handleGETUserAgent(connection net.Conn , httpVersion string , userAgent string) {
+func handleGET(connection net.Conn , httpVersion string , userAgent string) {
 	response := fmt.Sprintf("%s 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", httpVersion , len(userAgent) , userAgent)
 	connection.Write([]byte(response))
 }
@@ -99,14 +106,11 @@ func handleNotFound(connection net.Conn, httpVersion string) {
 	connection.Write([]byte(response))
 }
 
-func handleGETEcho(connection net.Conn ,httpVersion string , body string) {
-	response := fmt.Sprintf("%s 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", httpVersion , len(body) , body)
-	connection.Write([]byte(response))
-}
+
 
 func main() {
 
-	fmt.Println("Logs from your program will appear here!")
+	fmt.Println("Server is running on port 4221...")
 
 	listener, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
@@ -114,12 +118,14 @@ func main() {
 		return
 	}
 
+	defer listener.Close()
+
 	for {
 		connection, err := listener.Accept()
 		if err != nil {
-			fmt.Println("cant accept this connection")
-			return
+			fmt.Println("Failed to accept connection:", err)
+			continue
 		}
-		handleRequest(connection)
+		go handleRequest(connection)
 	}
 }
