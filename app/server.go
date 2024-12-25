@@ -1,8 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -41,13 +45,14 @@ func parseRequest(rawRequest string) (*Request, error) {
 	method, url, httpVersion := requestLine[0], requestLine[1], requestLine[2]
 	userAgent := getUserAgent(lines)
 
-	return &Request{Method: method,
+	return &Request{
+		Method:      method,
 		URL:         url,
 		HTTPVersion: httpVersion,
 		UserAgent:   userAgent}, nil
 }
 
-func routeRequest(request *Request, connection net.Conn) {
+func routeRequest(request *Request, connection net.Conn, directory string) {
 	switch {
 	case request.Method != "GET":
 		handleNotFound(connection, request.HTTPVersion)
@@ -62,12 +67,51 @@ func routeRequest(request *Request, connection net.Conn) {
 	case request.URL == "/":
 		handleGETRoot(connection, request.HTTPVersion)
 
+	case strings.HasPrefix(request.URL, "/files/"):
+		path := strings.TrimPrefix(request.URL, "/files/")
+		fullPath := filepath.Join(directory, path)
+		handleFileRequest(connection, request, fullPath)
+
 	default:
 		handleNotFound(connection, request.HTTPVersion)
 	}
 }
 
-func handleRequest(connection net.Conn) {
+func handleFileRequest(connection net.Conn, request *Request, path string) {
+
+	info, err := os.Stat(path)
+	if err != nil {
+		response := fmt.Sprintf("%s 404 Not Found\r\n\r\n", request.HTTPVersion)
+		connection.Write([]byte(response))
+		return
+	}
+
+	if info.IsDir() {
+		response := fmt.Sprintf("%s 404 Not Found\r\n\r\n", request.HTTPVersion)
+		connection.Write([]byte(response))
+		return
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		response := fmt.Sprintf("%s 404 Not Found\r\n\r\n", request.HTTPVersion)
+		connection.Write([]byte(response))
+		return
+	}
+
+	defer file.Close()
+
+	size, _ := file.Seek(0, io.SeekEnd)
+	file.Seek(0, io.SeekStart)
+	data := make([]byte, size+10)
+	_, _ = file.Read(data)
+	content := string(data)
+	fmt.Println(content)
+	response := fmt.Sprintf("%s 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", request.HTTPVersion, size, content)
+	connection.Write([]byte(response))
+}
+
+func handleRequest(connection net.Conn, directory string) {
 
 	defer connection.Close()
 
@@ -87,7 +131,7 @@ func handleRequest(connection net.Conn) {
 		return
 	}
 
-	routeRequest(request, connection)
+	routeRequest(request, connection, directory)
 
 }
 
@@ -108,14 +152,28 @@ func handleNotFound(connection net.Conn, httpVersion string) {
 
 func main() {
 
-	fmt.Println("Server is running on port 4221...")
+	var directory string
+	flag.StringVar(&directory, "directory", ".", "directory from which to serve files")
+	flag.Parse()
 
+	info, err := os.Stat(directory)
+	if err != nil {
+		fmt.Printf("Failed to check directory path: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !info.IsDir() {
+		fmt.Printf("Invalid directory path %s\n", directory)
+		os.Exit(1)
+	}
+
+	fmt.Println("Server is running on port 4221...")
 	listener, err := net.Listen("tcp", "0.0.0.0:4221")
+
 	if err != nil {
 		fmt.Println("Can not bind the port for tcp server")
 		return
 	}
-
 
 	for {
 		connection, err := listener.Accept()
@@ -123,6 +181,6 @@ func main() {
 			fmt.Println("Failed to accept connection:", err)
 			continue
 		}
-		go handleRequest(connection)
+		go handleRequest(connection, directory)
 	}
 }
